@@ -11,6 +11,12 @@
 
 #include <assert.h>
 
+#define PCS_OPTIMIZATION
+
+#ifdef PCS_OPTIMIZATION
+#include <malloc.h>
+#endif /* PCS_OPTIMIZATION */
+
 #define NBUCKETS 1024 /* number of buckets for data*/
 #define NBUCKETS_DIM 16 /* number of buckets for dimensions/strides */
 #define NCACHE 7 /* number of cache entries per bucket */
@@ -170,7 +176,23 @@ PyDataMem_NEW(size_t size)
 {
     void *result;
 
+#ifdef PCS_OPTIMIZATION
+    if(size < 4096)
+        result = malloc(size);
+    else
+    {
+        result = memalign(4096,size);
+        int i=0;
+        char*p=(char*)result;
+        for(i=0;i<size/4096;i++)//pre-reading data
+        {
+            *p=0;
+            p += 4096;
+        }
+    }
+#else
     result = malloc(size);
+#endif /* PCS_OPTIMIZATION */
     if (_PyDataMem_eventhook != NULL) {
         NPY_ALLOW_C_API_DEF
         NPY_ALLOW_C_API

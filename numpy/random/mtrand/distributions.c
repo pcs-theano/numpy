@@ -55,6 +55,8 @@
 #define M_PI 3.14159265358979323846264338328
 #endif
 
+#define PCS_OPTIMIZATION
+
 /*
  * log-gamma function to support some of these distributions. The
  * algorithm comes from SPECFUN by Shanjie Zhang and Jianming Jin and their
@@ -407,11 +409,20 @@ long rk_binomial_inversion(rk_state *state, long n, double p)
     {
         state->nsave = n;
         state->psave = p;
-        state->has_binomial = 1;
+        /*
+         * pcs, 20150721, move the following line to the end of the IF clause. 
+         * In multithreading env, this line will cuase data race condition ( non init bound in other thread)
+         */
+#ifndef PCS_OPTIMIZATION
+        state->has_binomial = 1; 
+#endif /* PCS_OPTIMIZATION */
         state->q = q = 1.0 - p;
         state->r = qn = exp(n * log(q));
         state->c = np = n*p;
         state->m = bound = min(n, np + 10.0*sqrt(np*q + 1));
+#ifdef PCS_OPTIMIZATION
+        state->has_binomial = 1;
+#endif /* PCS_OPTIMIZATION */
     } else
     {
         q = state->q;
