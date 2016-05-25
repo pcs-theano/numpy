@@ -135,12 +135,15 @@ static void
     assert(npy_is_aligned(src, _ALIGN(@type@)));
 #endif
     /*printf("fn @prefix@_@oper@_size@elsize@\n");*/
-    while (N > 0) {
+///    while (N > 0) {
+    int i=0;//Owen.pei
+    #pragma omp parallel for //owen.pei
+    for(i=0;i<N;i++){//Owen.pei
 #if @is_aligned@
-
         /* aligned copy and swap */
 #  if @elsize@ != 16
-        (*((@type@ *)dst)) = @swap@@elsize@(*((@type@ *)src));
+        ///(*((@type@ *)dst)) = @swap@@elsize@(*((@type@ *)src));
+        (*((@type@ *)(dst+i* @elsize@))) = @swap@@elsize@(*((@type@ *)(src+ src_stride*i)));//Owen.pei
 #  else
 #    if @is_swap@ == 0
         (*((npy_uint64 *)dst)) = (*((npy_uint64 *)src));
@@ -168,7 +171,7 @@ static void
 #endif
 
 #if @dst_contig@
-        dst += @elsize@;
+       // dst += @elsize@;//owen.pei
 #else
         dst += dst_stride;
 #endif
@@ -176,11 +179,11 @@ static void
 #if @src_contig@
         src += @elsize@;
 #else
-        src += src_stride;
+     ///   src += src_stride;//owen.pei
 #endif
 
-        --N;
-    }
+     ///   --N;//owen.pei
+    }/*Owen2*/
 }
 #endif
 
@@ -232,7 +235,7 @@ static NPY_GCC_OPT_3 void
 
     while (N > 0) {
 #  if @elsize@ != 16
-        *((@type@ *)dst) = temp;
+        *((@type@ *)(dst)) = temp;
 #  else
         *((npy_uint64 *)dst) = temp0;
         *((npy_uint64 *)dst + 1) = temp1;
@@ -243,7 +246,7 @@ static NPY_GCC_OPT_3 void
         dst += dst_stride;
 #  endif
         --N;
-    }
+    }/*Owen*/
 #endif/* @elsize == 1 && @dst_contig@ -- else */
 }
 #endif/* (@src_contig@ == 0) && @is_aligned@ */
