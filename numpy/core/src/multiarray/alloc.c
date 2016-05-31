@@ -178,10 +178,11 @@ PyDataMem_NEW(size_t size)
 
 #ifdef PCS_OPTIMIZATION
     if(size < 4096)
-        result = malloc(size);
+        result = memalign(64,size); //malloc(size);
     else
     {
         result = memalign(4096,size);
+     #if 0 //pre-load page
         int i=0;
         char*p=(char*)result;
         for(i=0;i<size/4096;i++)//pre-reading data
@@ -189,6 +190,7 @@ PyDataMem_NEW(size_t size)
             *p=0;
             p += 4096;
         }
+     #endif
     }
 #else
     result = malloc(size);

@@ -48,13 +48,13 @@ class IntelEM64TCCompiler(UnixCCompiler):
     A modified Intel x86_64 compiler compatible with a 64bit GCC-built Python.
     """
     compiler_type = 'intelem'
-    cc_exe = 'icc -m64'
+    cc_exe = 'icc -m64 -g '
     cc_args = '-fPIC'
 
     def __init__(self, verbose=0, dry_run=0, force=0):
         UnixCCompiler.__init__(self, verbose, dry_run, force)
-        self.cc_exe = ('icc -m64 -fPIC -fp-model strict -O3 '
-                       '-fomit-frame-pointer -openmp -xSSE4.2')
+        self.cc_exe = ('icc -m64 -g -fPIC -fp-model strict -O3 '
+                       '-fomit-frame-pointer -openmp -xCORE-AVX2')
         compiler = self.cc_exe
         if platform.system() == 'Darwin':
             shared_flag = '-Wl,-undefined,dynamic_lookup'
