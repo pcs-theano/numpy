@@ -55,6 +55,7 @@ class IntelEM64TCCompiler(UnixCCompiler):
         UnixCCompiler.__init__(self, verbose, dry_run, force)
         self.cc_exe = ('icc -m64 -g -fPIC -fp-model strict -O3 '
                        '-fomit-frame-pointer -openmp -xCORE-AVX2')
+
         compiler = self.cc_exe
         if platform.system() == 'Darwin':
             shared_flag = '-Wl,-undefined,dynamic_lookup'
