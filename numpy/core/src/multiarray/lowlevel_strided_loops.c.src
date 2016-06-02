@@ -129,12 +129,29 @@ static void
                         npy_intp N, npy_intp NPY_UNUSED(src_itemsize),
                         NpyAuxData *NPY_UNUSED(data))
 {
+    int i;
 #if @is_aligned@ && @elsize@ != 16
     /* sanity check */
     assert(npy_is_aligned(dst, _ALIGN(@type@)));
     assert(npy_is_aligned(src, _ALIGN(@type@)));
 #endif
     /*printf("fn @prefix@_@oper@_size@elsize@\n");*/
+#if @is_swap@ == 0 && @is_aligned@ && @elsize@ != 16 /* Intel Opt */
+    #pragma omp parallel for
+    for (i=0; i<N; i++){
+#if @dst_contig@
+      (*((@type@ *)(dst+@elsize@*i))) =
+#else
+      (*((@type@ *)(dst+dst_stride*i))) =
+#endif
+
+#if @src_contig@
+	@swap@@elsize@(*((@type@ *)(src+@elsize@*i)));
+#else
+        @swap@@elsize@(*((@type@ *)(src+src_stride*i)));
+#endif
+    }
+#else  /* Intel Opt */
     while (N > 0) {
 #if @is_aligned@
 
@@ -181,6 +198,7 @@ static void
 
         --N;
     }
+#endif /* Intel Opt */
 }
 #endif
 
