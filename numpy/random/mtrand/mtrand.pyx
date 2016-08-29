@@ -26,6 +26,12 @@ include "numpy.pxd"
 
 from libc cimport string
 
+cdef extern from "stdio.h":
+    int printf(const char *format, ...) nogil
+
+from cython.parallel cimport parallel, threadid, prange
+cimport openmp
+
 cdef extern from "math.h":
     double exp(double x)
     double log(double x)
@@ -137,6 +143,16 @@ cdef extern from "initarray.h":
    void init_by_array(rk_state *self, unsigned long *init_key,
                       npy_intp key_length)
 
+cdef extern from "mkl.h":
+    ctypedef void* VSLStreamStatePtr
+    cdef int VSL_RNG_METHOD_BINOMIAL_BTPE
+    cdef int VSL_BRNG_MCG31
+    int vslNewStream (VSLStreamStatePtr* , const int , const unsigned int ) nogil
+    int vslDeleteStream (VSLStreamStatePtr*) nogil
+    int vslSkipAheadStream (VSLStreamStatePtr , const long long int ) nogil
+    int viRngBinomial (const int , VSLStreamStatePtr , const int , int [], const int , const double ) nogil
+
+   
 # Initialize numpy
 import_array()
 
@@ -348,22 +364,59 @@ cdef object disc0_array(rk_state *state, rk_disc0 func, object size, object lock
                 array_data[i] = func(state)
         return array
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+
 cdef object discnp_array_sc(rk_state *state, rk_discnp func, object size,
                             long n, double p, object lock):
     cdef long *array_data
+    cdef int *iarray_data
     cdef ndarray array "arrayObject"
     cdef npy_intp length
     cdef npy_intp i
-
+    cdef npy_intp bs
+    cdef VSLStreamStatePtr stream[256]
+    cdef int avg_amount[256]
+    cdef int my_offset[256]
+    cdef int my_amount[256]
+    
+    print "discnp_array_sc"
     if size is None:
         return func(state, n, p)
     else:
         array = <ndarray>np.empty(size, int)
+        iarray = <ndarray>np.empty(size, int)
         length = PyArray_SIZE(array)
         array_data = <long *>PyArray_DATA(array)
-        with lock, nogil:
-            for i from 0 <= i < length:
-                array_data[i] = func(state, n, p)
+        iarray_data = <int *>PyArray_DATA(iarray)
+        bs = min(256, length)
+        for i in prange(bs, nogil=True):
+            avg_amount[i] = (length + bs -1) / bs
+            my_offset[i] = i * avg_amount[i]
+            my_amount[i] = min(my_offset[i] + avg_amount[i], length) - my_offset[i]
+#            printf("%d %d\n", my_offset[i], my_amount[i])
+            if my_amount[i] > 0:
+                vslNewStream(&stream[i], VSL_BRNG_MCG31,  1)
+                vslSkipAheadStream(stream[i], my_offset[i])
+                viRngBinomial(VSL_RNG_METHOD_BINOMIAL_BTPE, stream[i], my_amount[i], iarray_data+my_offset[i], n, p)
+                vslDeleteStream(&stream[i])
+
+#        with nogil, parallel():
+#            with gil:
+#                num_threads = openmp.omp_get_num_threads()
+#                avg_amount = (n + num_threads - 1) / num_threads;
+#                my_offset = threadid() * avg_amount;
+#                my_amount = min(my_offset + avg_amount, length) - my_offset
+#                print threadid(), avg_amount, avg_amount, my_amount
+#                printf("%d\n", num_threads)
+        #with lock, nogil:
+#            vslNewStream(&stream[threadid()], VSL_BRNG_MCG31,  1)
+#            viRngBinomial(VSL_RNG_METHOD_BINOMIAL_BTPE, stream, length, iarray_data, n, p )
+#            vslDeleteStream(&stream[threadid()])
+        for i from 0 <= i < length:
+            array_data[i] = iarray_data[i]
+#            for i from 0 <= i < length:
+#                array_data[i] = func(state, n, p)
         return array
 
 cdef object discnp_array(rk_state *state, rk_discnp func, object size,
@@ -375,6 +428,7 @@ cdef object discnp_array(rk_state *state, rk_discnp func, object size,
     cdef long *on_data
     cdef broadcast multi
 
+    print "discnp_array"
     if size is None:
         multi = <broadcast> PyArray_MultiIterNew(2, <void *>on, <void *>op)
         array = <ndarray> PyArray_SimpleNew(multi.nd, multi.dimensions, NPY_LONG)
@@ -3992,6 +4046,8 @@ cdef class RandomState:
         cdef long ln
         cdef double fp
 
+        print "binomial"
+        
         fp = PyFloat_AsDouble(p)
         ln = PyInt_AsLong(n)
         if not PyErr_Occurred():
@@ -4090,6 +4146,8 @@ cdef class RandomState:
         cdef double fn
         cdef double fp
 
+        print "neg_binomial"
+        
         fp = PyFloat_AsDouble(p)
         fn = PyFloat_AsDouble(n)
         if not PyErr_Occurred():
@@ -4338,6 +4396,7 @@ cdef class RandomState:
         cdef ndarray op
         cdef double fp
 
+        print "geometric"
         fp = PyFloat_AsDouble(p)
         if not PyErr_Occurred():
             if fp < 0.0:
