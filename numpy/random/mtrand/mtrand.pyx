@@ -24,10 +24,10 @@
 include "Python.pxi"
 include "numpy.pxd"
 
-from libc cimport string
+import time
+import os
 
-cdef extern from "stdio.h":
-    int printf(const char *format, ...) nogil
+from libc cimport string
 
 from cython.parallel cimport parallel, threadid, prange
 cimport openmp
@@ -364,9 +364,6 @@ cdef object disc0_array(rk_state *state, rk_disc0 func, object size, object lock
                 array_data[i] = func(state)
         return array
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-
 cdef object discnp_array_sc(rk_state *state, rk_discnp func, object size,
                             long n, double p, object lock):
     cdef long *array_data
@@ -374,13 +371,14 @@ cdef object discnp_array_sc(rk_state *state, rk_discnp func, object size,
     cdef ndarray array "arrayObject"
     cdef npy_intp length
     cdef npy_intp i
-    cdef npy_intp bs
     cdef VSLStreamStatePtr stream[256]
     cdef int avg_amount[256]
     cdef int my_offset[256]
     cdef int my_amount[256]
-    
-    print "discnp_array_sc"
+    cdef int tid
+    cdef int num_threads
+    cdef long seed
+
     if size is None:
         return func(state, n, p)
     else:
@@ -389,34 +387,25 @@ cdef object discnp_array_sc(rk_state *state, rk_discnp func, object size,
         length = PyArray_SIZE(array)
         array_data = <long *>PyArray_DATA(array)
         iarray_data = <int *>PyArray_DATA(iarray)
-        bs = min(256, length)
-        for i in prange(bs, nogil=True):
-            avg_amount[i] = (length + bs -1) / bs
-            my_offset[i] = i * avg_amount[i]
-            my_amount[i] = min(my_offset[i] + avg_amount[i], length) - my_offset[i]
-#            printf("%d %d\n", my_offset[i], my_amount[i])
-            if my_amount[i] > 0:
-                vslNewStream(&stream[i], VSL_BRNG_MCG31,  1)
-                vslSkipAheadStream(stream[i], my_offset[i])
-                viRngBinomial(VSL_RNG_METHOD_BINOMIAL_BTPE, stream[i], my_amount[i], iarray_data+my_offset[i], n, p)
-                vslDeleteStream(&stream[i])
+        ntime = time.time()
+        seed = (int(ntime))^int((ntime - int(ntime))*1000000)^os.getpid()
 
-#        with nogil, parallel():
-#            with gil:
-#                num_threads = openmp.omp_get_num_threads()
-#                avg_amount = (n + num_threads - 1) / num_threads;
-#                my_offset = threadid() * avg_amount;
-#                my_amount = min(my_offset + avg_amount, length) - my_offset
-#                print threadid(), avg_amount, avg_amount, my_amount
-#                printf("%d\n", num_threads)
-        #with lock, nogil:
-#            vslNewStream(&stream[threadid()], VSL_BRNG_MCG31,  1)
-#            viRngBinomial(VSL_RNG_METHOD_BINOMIAL_BTPE, stream, length, iarray_data, n, p )
-#            vslDeleteStream(&stream[threadid()])
-        for i from 0 <= i < length:
+        with nogil, parallel():
+            tid = threadid()
+            num_threads = min(openmp.omp_get_num_threads(), 256)
+            if tid < 256:
+                avg_amount[tid] = (length + num_threads -1) / num_threads
+                my_offset[tid] = tid * avg_amount[tid]
+                my_amount[tid] = min(my_offset[tid] + avg_amount[tid], length) - my_offset[tid]
+                if my_amount[tid] > 0:
+                    vslNewStream(&stream[tid], VSL_BRNG_MCG31, seed)
+                    vslSkipAheadStream(stream[tid], my_offset[tid])
+                    viRngBinomial(VSL_RNG_METHOD_BINOMIAL_BTPE, stream[tid], my_amount[tid], iarray_data+my_offset[tid], n, p)
+                    vslDeleteStream(&stream[tid])
+
+        for i in prange(length, nogil=True):
             array_data[i] = iarray_data[i]
-#            for i from 0 <= i < length:
-#                array_data[i] = func(state, n, p)
+
         return array
 
 cdef object discnp_array(rk_state *state, rk_discnp func, object size,
@@ -428,7 +417,6 @@ cdef object discnp_array(rk_state *state, rk_discnp func, object size,
     cdef long *on_data
     cdef broadcast multi
 
-    print "discnp_array"
     if size is None:
         multi = <broadcast> PyArray_MultiIterNew(2, <void *>on, <void *>op)
         array = <ndarray> PyArray_SimpleNew(multi.nd, multi.dimensions, NPY_LONG)
@@ -4046,8 +4034,6 @@ cdef class RandomState:
         cdef long ln
         cdef double fp
 
-        print "binomial"
-        
         fp = PyFloat_AsDouble(p)
         ln = PyInt_AsLong(n)
         if not PyErr_Occurred():
@@ -4146,8 +4132,6 @@ cdef class RandomState:
         cdef double fn
         cdef double fp
 
-        print "neg_binomial"
-        
         fp = PyFloat_AsDouble(p)
         fn = PyFloat_AsDouble(n)
         if not PyErr_Occurred():
@@ -4396,7 +4380,6 @@ cdef class RandomState:
         cdef ndarray op
         cdef double fp
 
-        print "geometric"
         fp = PyFloat_AsDouble(p)
         if not PyErr_Occurred():
             if fp < 0.0:
